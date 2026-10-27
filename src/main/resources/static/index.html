@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shop</title>
+<style>
+  :root { --bg:#f6f7f5; --card:#fff; --ink:#1d2421; --muted:#68736d; --line:#dfe3df; --accent:#1f6f54; --danger:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141a17; --card:#1c2420; --ink:#e8ede9; --muted:#97a39b; --line:#2c3732; --accent:#4fb58c; --danger:#f28b82; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); line-height:1.5; }
+  header { display:flex; justify-content:space-between; align-items:center; padding:14px 24px; border-bottom:1px solid var(--line); background:var(--card); }
+  header h1 { font-size:1.15rem; margin:0; }
+  main { max-width:960px; margin:0 auto; padding:24px; display:grid; gap:24px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:18px; }
+  h2 { font-size:1rem; margin:0 0 12px; }
+  input { padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); font:inherit; }
+  button { padding:8px 14px; border:0; border-radius:6px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  button.danger { background:var(--danger); }
+  button:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .item { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .item:last-child { border-bottom:0; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .tag { font-size:.8rem; padding:2px 8px; border-radius:99px; border:1px solid var(--line); color:var(--muted); }
+  #msg { min-height:1.4em; font-weight:600; }
+  #msg.err { color:var(--danger); } #msg.ok { color:var(--accent); }
+  .hidden { display:none; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+  @media (max-width:760px) { .two { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Product &amp; Order Management</h1>
+  <div id="who" class="row hidden"><span id="whoText" class="muted"></span><button class="ghost" onclick="logout()">Log out</button></div>
+</header>
+
+<main>
+  <p id="msg" role="status"></p>
+
+  <section id="authBox">
+    <h2>Sign in</h2>
+    <div class="row">
+      <input id="email" placeholder="Email" autocomplete="username">
+      <input id="pass" type="password" placeholder="Password" autocomplete="current-password">
+      <button onclick="login()">Log in</button>
+    </div>
+    <h2 style="margin-top:20px">New here? Create an account</h2>
+    <div class="row">
+      <input id="rName" placeholder="Name">
+      <input id="rEmail" placeholder="Email">
+      <input id="rPass" type="password" placeholder="Password (min 6)">
+      <button class="ghost" onclick="register()">Register</button>
+    </div>
+    <p class="muted">Admin demo account: admin@shop.com / admin123</p>
+  </section>
+
+  <section id="adminBox" class="hidden">
+    <h2>Admin: manage products</h2>
+    <div class="row">
+      <input id="pName" placeholder="Name">
+      <input id="pDesc" placeholder="Description">
+      <input id="pPrice" type="number" step="0.01" min="0" placeholder="Price">
+      <input id="pQty" type="number" min="0" placeholder="Quantity">
+      <button onclick="addProduct()">Add product</button>
+    </div>
+    <div id="adminList"></div>
+  </section>
+
+  <div id="shopBox" class="hidden two">
+    <section>
+      <h2>Products</h2>
+      <div id="products"></div>
+    </section>
+    <section>
+      <h2>Your cart</h2>
+      <div id="cart"></div>
+      <p><strong id="cartTotal"></strong></p>
+      <button onclick="placeOrder()">Place order</button>
+      <h2 style="margin-top:24px">Your orders</h2>
+      <div id="orders"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+let auth = "", me = null;
+const $ = id => document.getElementById(id);
+const money = n => "₹" + Number(n).toFixed(2);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function say(text, ok) { $("msg").textContent = text; $("msg").className = ok ? "ok" : "err"; }
+
+async function api(path, method = "GET", body) {
+  const res = await fetch("/api" + path, {
+    method,
+    headers: { "Authorization": auth, "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    const m = data && data.message;
+    throw new Error(typeof m === "object" ? Object.values(m).join(", ") : (m || "Request failed (" + res.status + ")"));
+  }
+  return data;
+}
+
+async function login() {
+  auth = "Basic " + btoa(unescape(encodeURIComponent($("email").value.trim().toLowerCase() + ":" + $("pass").value)));
+  try {
+    me = await api("/auth/me");
+    say("Signed in as " + me.name, true);
+    $("authBox").classList.add("hidden");
+    $("who").classList.remove("hidden");
+    $("whoText").textContent = me.name + " (" + me.role + ")";
+    if (me.role === "ADMIN") { $("adminBox").classList.remove("hidden"); loadAdmin(); }
+    else { $("shopBox").classList.remove("hidden"); refreshShop(); }
+  } catch (e) { auth = ""; say("Login failed: check email and password", false); }
+}
+
+function logout() { location.reload(); }
+
+async function register() {
+  try {
+    await api("/auth/register", "POST", { name: $("rName").value, email: $("rEmail").value, password: $("rPass").value });
+    say("Account created. You can log in now.", true);
+    $("email").value = $("rEmail").value;
+  } catch (e) { say(e.message, false); }
+}
+
+/* ---------- user ---------- */
+async function refreshShop() { await Promise.all([loadProducts(), loadCart(), loadOrders()]); }
+
+async function loadProducts() {
+  const list = await api("/products");
+  $("products").innerHTML = list.length ? list.map(p => `
+    <div class="item">
+      <div><strong>${esc(p.name)}</strong><div class="muted">${esc(p.description)} · ${money(p.price)} · ${p.quantity} in stock</div></div>
+      <button ${p.quantity === 0 ? "disabled" : ""} onclick="addToCart(${p.id})">${p.quantity === 0 ? "Out of stock" : "Add to cart"}</button>
+    </div>`).join("") : `<p class="muted">No products available yet.</p>`;
+}
+
+async function addToCart(id) {
+  try { await api("/cart/items", "POST", { productId: id, quantity: 1 }); say("Added to cart", true); loadCart(); }
+  catch (e) { say(e.message, false); }
+}
+
+async function loadCart() {
+  const items = await api("/cart");
+  let total = 0;
+  $("cart").innerHTML = items.length ? items.map(i => {
+    total += i.price * i.quantity;
+    return `<div class="item">
+      <div><strong>${esc(i.productName)}</strong><div class="muted">${money(i.price)} each</div></div>
+      <div class="row">
+        <input type="number" min="1" value="${i.quantity}" style="width:70px" onchange="updateItem(${i.itemId}, this.value)">
+        <button class="danger" onclick="removeItem(${i.itemId})">Remove</button>
+      </div></div>`;
+  }).join("") : `<p class="muted">Your cart is empty. Add a product to start.</p>`;
+  $("cartTotal").textContent = items.length ? "Total: " + money(total) : "";
+}
+
+async function updateItem(id, q) {
+  try { await api("/cart/items/" + id, "PUT", { quantity: Number(q) }); say("Cart updated", true); }
+  catch (e) { say(e.message, false); }
+  loadCart();
+}
+async function removeItem(id) {
+  try { await api("/cart/items/" + id, "DELETE"); say("Item removed", true); } catch (e) { say(e.message, false); }
+  loadCart();
+}
+
+async function placeOrder() {
+  try {
+    const o = await api("/orders", "POST");
+    say("Order #" + o.id + " placed. Total " + money(o.totalAmount), true);
+  } catch (e) { say(e.message, false); }
+  refreshShop();
+}
+
+async function loadOrders() {
+  const list = await api("/orders");
+  $("orders").innerHTML = list.length ? list.map(o => `
+    <div class="item"><div>
+      <strong>Order #${o.id}</strong> <span class="tag">${esc(o.status)}</span>
+      <div class="muted">${o.items.map(i => esc(i.productName) + " × " + i.quantity).join(", ")}</div></div>
+      <strong>${money(o.totalAmount)}</strong></div>`).join("") : `<p class="muted">No orders yet.</p>`;
+}
+
+/* ---------- admin ---------- */
+async function loadAdmin() {
+  const list = await api("/admin/products");
+  $("adminList").innerHTML = list.map(p => `
+    <div class="item">
+      <div><strong>${esc(p.name)}</strong> <span class="tag">${p.enabled ? "Enabled" : "Disabled"}</span>
+        <div class="muted">#${p.id} · ${esc(p.description)}</div></div>
+      <div class="row">
+        <input type="number" step="0.01" min="0.01" value="${p.price}" style="width:100px" id="pr${p.id}" aria-label="Price">
+        <input type="number" min="0" value="${p.quantity}" style="width:80px" id="qt${p.id}" aria-label="Quantity">
+        <button onclick="saveProduct(${p.id})">Save</button>
+        <button class="ghost" onclick="toggleProduct(${p.id}, ${p.enabled})">${p.enabled ? "Disable" : "Enable"}</button>
+      </div></div>`).join("");
+}
+async function addProduct() {
+  try {
+    await api("/admin/products", "POST", { name: $("pName").value, description: $("pDesc").value,
+      price: Number($("pPrice").value), quantity: Number($("pQty").value) });
+    say("Product added", true); loadAdmin();
+  } catch (e) { say(e.message, false); }
+}
+async function saveProduct(id) {
+  try {
+    await api("/admin/products/" + id, "PUT", { price: Number($("pr" + id).value), quantity: Number($("qt" + id).value) });
+    say("Product updated", true); loadAdmin();
+  } catch (e) { say(e.message, false); }
+}
+async function toggleProduct(id, enabled) {
+  try { await api("/admin/products/" + id + (enabled ? "/disable" : "/enable"), "PATCH");
+    say(enabled ? "Product disabled" : "Product enabled", true); loadAdmin(); }
+  catch (e) { say(e.message, false); }
+}
+</script>
+</body>
+</html>
